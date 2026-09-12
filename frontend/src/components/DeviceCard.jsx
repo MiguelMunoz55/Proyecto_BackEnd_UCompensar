@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import DeviceGlyph from './DeviceGlyph'
 import StarRating from './StarRating'
+import { resolveImageUrl } from '../context/DataContext'
 import { formatDate, formatPrice, isRecent } from '../utils/format'
 
 const KEY_SPECS_BY_TYPE = {
@@ -12,11 +13,16 @@ const KEY_SPECS_BY_TYPE = {
 
 export default function DeviceCard({ device }) {
   const keySpecs = KEY_SPECS_BY_TYPE[device.type?.slug] || Object.keys(device.specs).slice(0, 3)
+  const photoUrl = resolveImageUrl(device.imageUrl)
 
   return (
     <Link to={`/dispositivos/${device.id}`} className="device-card">
       <div className="device-card-media">
-        <DeviceGlyph typeSlug={device.type?.slug} tone={device.imageTone} size={92} />
+        {photoUrl ? (
+          <img src={photoUrl} alt={device.name} className="device-card-photo" />
+        ) : (
+          <DeviceGlyph typeSlug={device.type?.slug} tone={device.imageTone} size={92} />
+        )}
         {isRecent(device.releaseDate) && <span className="tag tag-new position-absolute top-0 end-0 m-2">Nuevo</span>}
       </div>
       <div className="device-card-body">

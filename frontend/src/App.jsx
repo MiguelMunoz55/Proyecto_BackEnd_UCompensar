@@ -4,6 +4,8 @@ import Footer from './components/Footer'
 import Home from './pages/Home'
 import DeviceDetail from './pages/DeviceDetail'
 import AdminLayout from './pages/admin/AdminLayout'
+import AdminLogin from './pages/admin/AdminLogin'
+import RequireAuth from './pages/admin/RequireAuth'
 import AdminDevices from './pages/admin/AdminDevices'
 import DeviceForm from './pages/admin/DeviceForm'
 import AdminTaxonomy from './pages/admin/AdminTaxonomy'
@@ -19,7 +21,15 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/dispositivos/:id" element={<DeviceDetail />} />
 
-          <Route path="/admin" element={<AdminLayout />}>
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route
+            path="/admin"
+            element={
+              <RequireAuth>
+                <AdminLayout />
+              </RequireAuth>
+            }
+          >
             <Route index element={<AdminDevices />} />
             <Route path="dispositivos/nuevo" element={<DeviceForm />} />
             <Route path="dispositivos/:id/editar" element={<DeviceForm />} />

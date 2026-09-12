@@ -1,97 +1,181 @@
-import { createContext, useContext, useEffect, useMemo, useReducer } from 'react'
-import { seedBrands, seedTypes } from '../data/seedBrandsTypes'
-import { seedDevices } from '../data/seedDevices'
-import { seedComments } from '../data/seedComments'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { useAuth } from './AuthContext'
 
 // ---------------------------------------------------------------------------
-// Esta capa reemplaza, por ahora, a la API REST descrita en
-// docs/ARQUITECTURA-BACKEND.md. Cada acción de este contexto está pensada
-// para mapear 1 a 1 con un endpoint del futuro backend en Java:
+// Esta capa reemplaza la simulación en memoria/localStorage por llamadas
+// reales al backend descrito en docs/ARQUITECTURA-BACKEND.md:
 //   ADD_DEVICE    -> POST   /api/devices
 //   UPDATE_DEVICE -> PUT    /api/devices/{id}
 //   DELETE_DEVICE -> DELETE /api/devices/{id}
-//   ADD_COMMENT   -> POST   /api/devices/{id}/comments
-// Mientras no exista el backend, el estado se persiste en localStorage para
-// que los cambios hechos desde el panel de administración sobrevivan a un
-// refresco de página durante la demostración.
+//   ADD_BRAND     -> POST   /api/brands
+//   DELETE_BRAND  -> DELETE /api/brands/{id}
+//   ADD_TYPE      -> POST   /api/device-types
+//   DELETE_TYPE   -> DELETE /api/device-types/{id}
+//   ADD_COMMENT   -> POST   /api/devices/{id}/comments (público)
+//   DELETE_COMMENT-> DELETE /api/comments/{id}
+// GET /api/devices ya devuelve el dispositivo "enriquecido" (marca, tipo,
+// comentarios, promedio de calificación), así que no hace falta recalcularlo
+// en el cliente como hacía enrichDevice() antes.
 // ---------------------------------------------------------------------------
 
-const STORAGE_KEY = 'spechub_v1'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api'
+// El backend guarda las imágenes con una URL relativa ("/uploads/..."), así
+// que para pintarlas necesitamos el origen del backend sin el sufijo "/api".
+export const API_ORIGIN = API_BASE.replace(/\/api\/?$/, '')
 
-function loadInitialState() {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      if (parsed?.devices?.length) return parsed
-    }
-  } catch {
-    // localStorage no disponible o datos corruptos: se usa la semilla
-  }
-  return {
-    brands: seedBrands,
-    types: seedTypes,
-    devices: seedDevices,
-    comments: seedComments,
-  }
-}
-
-function uid(prefix) {
-  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
-}
-
-function reducer(state, action) {
-  switch (action.type) {
-    case 'ADD_DEVICE':
-      return { ...state, devices: [{ ...action.payload, id: uid('d') }, ...state.devices] }
-    case 'UPDATE_DEVICE':
-      return {
-        ...state,
-        devices: state.devices.map((d) => (d.id === action.payload.id ? action.payload : d)),
-      }
-    case 'DELETE_DEVICE':
-      return {
-        ...state,
-        devices: state.devices.filter((d) => d.id !== action.payload),
-        comments: state.comments.filter((c) => c.deviceId !== action.payload),
-      }
-    case 'ADD_BRAND':
-      return { ...state, brands: [...state.brands, { ...action.payload, id: uid('b') }] }
-    case 'DELETE_BRAND':
-      return { ...state, brands: state.brands.filter((b) => b.id !== action.payload) }
-    case 'ADD_TYPE':
-      return { ...state, types: [...state.types, { ...action.payload, id: uid('t') }] }
-    case 'DELETE_TYPE':
-      return { ...state, types: state.types.filter((t) => t.id !== action.payload) }
-    case 'ADD_COMMENT':
-      return { ...state, comments: [{ ...action.payload, id: uid('c') }, ...state.comments] }
-    case 'DELETE_COMMENT':
-      return { ...state, comments: state.comments.filter((c) => c.id !== action.payload) }
-    case 'RESET_DEMO':
-      return {
-        brands: seedBrands,
-        types: seedTypes,
-        devices: seedDevices,
-        comments: seedComments,
-      }
-    default:
-      return state
-  }
+export function resolveImageUrl(imageUrl) {
+  if (!imageUrl) return null
+  if (/^https?:\/\//i.test(imageUrl)) return imageUrl
+  return `${API_ORIGIN}${imageUrl}`
 }
 
 const DataStateContext = createContext(null)
 const DataDispatchContext = createContext(null)
 
+async function apiFetch(path, { method = 'GET', body, token, isFormData = false } = {}) {
+  const headers = {}
+  if (token) headers.Authorization = `Bearer ${token}`
+  // Con FormData el navegador arma el Content-Type (con el boundary) solo;
+  // si lo fijamos nosotros a mano, el backend no puede parsear el multipart.
+  if (!isFormData) headers['Content-Type'] = 'application/json'
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: isFormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
+  })
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null)
+    throw new Error(errorBody?.mensaje || errorBody?.error || `Error ${response.status}`)
+  }
+  if (response.status === 204) return null
+  return response.json()
+}
+
+// El formulario de admin trabaja con brandId/typeId/price como texto (vienen
+// de <select>/<input>); aquí se normalizan al tipo que espera el backend.
+function toDeviceRequest(device) {
+  return {
+    name: device.name,
+    brandId: Number(device.brandId),
+    typeId: Number(device.typeId),
+    releaseDate: device.releaseDate,
+    price: Number(device.price),
+    shortDescription: device.shortDescription,
+    review: device.review,
+    imageTone: device.imageTone,
+    specs: device.specs || {},
+  }
+}
+
 export function DataProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, undefined, loadInitialState)
+  const { token } = useAuth()
+  const [brands, setBrands] = useState([])
+  const [types, setTypes] = useState([])
+  const [devices, setDevices] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [brandsData, typesData, devicesData] = await Promise.all([
+        apiFetch('/brands'),
+        apiFetch('/device-types'),
+        apiFetch('/devices'),
+      ])
+      setBrands(brandsData)
+      setTypes(typesData)
+      setDevices(devicesData)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    } catch {
-      // Si el almacenamiento local falla, la app sigue funcionando en memoria
-    }
-  }, [state])
+    refresh()
+  }, [refresh])
+
+  // Comentarios "planos" para el panel de admin: cada DispositivoDTO ya trae
+  // sus propios comentarios embebidos (con deviceId incluido).
+  const comments = useMemo(() => devices.flatMap((d) => d.comments || []), [devices])
+
+  const state = useMemo(
+    () => ({ brands, types, devices, comments, loading, error }),
+    [brands, types, devices, comments, loading, error]
+  )
+
+  const dispatch = useCallback(
+    async (action) => {
+      let result
+      try {
+        switch (action.type) {
+          case 'ADD_DEVICE':
+            result = await apiFetch('/devices', { method: 'POST', token, body: toDeviceRequest(action.payload) })
+            break
+          case 'UPDATE_DEVICE':
+            result = await apiFetch(`/devices/${action.payload.id}`, {
+              method: 'PUT',
+              token,
+              body: toDeviceRequest(action.payload),
+            })
+            break
+          case 'UPLOAD_DEVICE_IMAGE': {
+            const formData = new FormData()
+            formData.append('file', action.payload.file)
+            result = await apiFetch(`/devices/${action.payload.deviceId}/image`, {
+              method: 'POST',
+              token,
+              body: formData,
+              isFormData: true,
+            })
+            break
+          }
+          case 'DELETE_DEVICE':
+            await apiFetch(`/devices/${action.payload}`, { method: 'DELETE', token })
+            break
+          case 'ADD_BRAND':
+            await apiFetch('/brands', { method: 'POST', token, body: action.payload })
+            break
+          case 'DELETE_BRAND':
+            await apiFetch(`/brands/${action.payload}`, { method: 'DELETE', token })
+            break
+          case 'ADD_TYPE':
+            await apiFetch('/device-types', { method: 'POST', token, body: action.payload })
+            break
+          case 'DELETE_TYPE':
+            await apiFetch(`/device-types/${action.payload}`, { method: 'DELETE', token })
+            break
+          case 'ADD_COMMENT':
+            // Público: no requiere token.
+            await apiFetch(`/devices/${action.payload.deviceId}/comments`, {
+              method: 'POST',
+              body: {
+                author: action.payload.author,
+                rating: action.payload.rating,
+                content: action.payload.content,
+              },
+            })
+            break
+          case 'DELETE_COMMENT':
+            await apiFetch(`/comments/${action.payload}`, { method: 'DELETE', token })
+            break
+          default:
+            return
+        }
+        await refresh()
+        return result
+      } catch (err) {
+        window.alert(err.message)
+        throw err
+      }
+    },
+    [token, refresh]
+  )
 
   return (
     <DataStateContext.Provider value={state}>
@@ -113,38 +197,20 @@ export function useDataDispatch() {
 }
 
 // ---------------------------- Selectores útiles ----------------------------
+// Los dispositivos que devuelve la API ya vienen enriquecidos (brand, type,
+// comments, averageRating, commentCount), así que estos selectores ya no
+// necesitan recalcular nada — se conservan para no tener que tocar las
+// páginas que ya los consumían.
 
 export function useEnrichedDevices() {
-  const { devices, brands, types, comments } = useDataState()
-  return useMemo(() => {
-    return devices.map((d) => enrichDevice(d, { brands, types, comments }))
-  }, [devices, brands, types, comments])
+  const { devices } = useDataState()
+  return devices
 }
 
 export function useEnrichedDevice(id) {
-  const state = useDataState()
-  return useMemo(() => {
-    const device = state.devices.find((d) => d.id === id)
-    if (!device) return null
-    return enrichDevice(device, state)
-  }, [id, state])
-}
-
-function enrichDevice(device, { brands, types, comments }) {
-  const brand = brands.find((b) => b.id === device.brandId) || null
-  const type = types.find((t) => t.id === device.typeId) || null
-  const deviceComments = comments
-    .filter((c) => c.deviceId === device.id)
-    .sort((a, b) => new Date(b.date) - new Date(a.date))
-  const averageRating = deviceComments.length
-    ? deviceComments.reduce((sum, c) => sum + c.rating, 0) / deviceComments.length
-    : null
-  return {
-    ...device,
-    brand,
-    type,
-    comments: deviceComments,
-    averageRating,
-    commentCount: deviceComments.length,
-  }
+  const { devices } = useDataState()
+  return useMemo(
+    () => devices.find((d) => String(d.id) === String(id)) || null,
+    [devices, id]
+  )
 }

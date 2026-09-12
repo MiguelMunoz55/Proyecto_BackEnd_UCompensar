@@ -1,29 +1,48 @@
-import { NavLink, Outlet } from 'react-router-dom'
-import { useDataDispatch } from '../../context/DataContext'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext'
+import { useDataState } from '../../context/DataContext'
 
 export default function AdminLayout() {
-  const dispatch = useDataDispatch()
+  const { username, logout } = useAuth()
+  const { devices, brands, types, comments } = useDataState()
+  const navigate = useNavigate()
 
-  function handleReset() {
-    if (window.confirm('¿Restaurar los datos de demostración? Se perderán los cambios hechos en este panel.')) {
-      dispatch({ type: 'RESET_DEMO' })
-    }
+  function handleLogout() {
+    logout()
+    navigate('/')
   }
+
+  const stats = [
+    { label: 'Dispositivos', value: devices.length },
+    { label: 'Marcas', value: brands.length },
+    { label: 'Tipos', value: types.length },
+    { label: 'Comentarios', value: comments.length },
+  ]
 
   return (
     <div className="container py-4">
-      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-1">
+      <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
         <div>
           <h1 className="h4 font-display mb-1">Panel de administración</h1>
           <p className="text-muted small mb-0">
             Alta, edición y baja de la información base del catálogo (dispositivos, marcas, tipos y comentarios).
-            En producción, estas acciones llamarían a la API REST del backend — ver{' '}
-            <code>docs/ARQUITECTURA-BACKEND.md</code>.
           </p>
         </div>
-        <button className="btn btn-sm btn-outline-graphite" onClick={handleReset}>
-          Restaurar datos de demo
-        </button>
+        <div className="d-flex align-items-center gap-2">
+          {username && <span className="text-muted small">Sesión: {username}</span>}
+          <button className="btn btn-sm btn-outline-graphite" onClick={handleLogout}>
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+
+      <div className="admin-stats mb-3">
+        {stats.map((s) => (
+          <div className="admin-stat" key={s.label}>
+            <span className="admin-stat-value font-mono">{s.value}</span>
+            <span className="admin-stat-label">{s.label}</span>
+          </div>
+        ))}
       </div>
 
       <div className="d-flex gap-1 border-bottom my-3" style={{ borderColor: 'var(--line)' }}>

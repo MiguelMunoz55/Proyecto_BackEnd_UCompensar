@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
-import { useDataDispatch, useEnrichedDevices } from '../../context/DataContext'
+import { resolveImageUrl, useDataDispatch, useEnrichedDevices } from '../../context/DataContext'
+import DeviceGlyph from '../../components/DeviceGlyph'
 import { formatDate, formatPrice } from '../../utils/format'
 
 export default function AdminDevices() {
@@ -25,6 +26,7 @@ export default function AdminDevices() {
         <table className="table admin-table">
           <thead>
             <tr>
+              <th></th>
               <th>Nombre</th>
               <th>Tipo</th>
               <th>Marca</th>
@@ -37,6 +39,15 @@ export default function AdminDevices() {
           <tbody>
             {devices.map((d) => (
               <tr key={d.id}>
+                <td>
+                  <div className="admin-thumb">
+                    {resolveImageUrl(d.imageUrl) ? (
+                      <img src={resolveImageUrl(d.imageUrl)} alt={d.name} />
+                    ) : (
+                      <DeviceGlyph typeSlug={d.type?.slug} tone={d.imageTone} size={28} />
+                    )}
+                  </div>
+                </td>
                 <td className="fw-semibold">{d.name}</td>
                 <td><span className="badge badge-soft-accent">{d.type?.name}</span></td>
                 <td>{d.brand?.name}</td>

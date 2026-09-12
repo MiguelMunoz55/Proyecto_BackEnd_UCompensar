@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useDataDispatch, useEnrichedDevice, useEnrichedDevices } from '../context/DataContext'
+import { resolveImageUrl, useDataDispatch, useEnrichedDevice, useEnrichedDevices } from '../context/DataContext'
 import DeviceGlyph from '../components/DeviceGlyph'
 import StarRating from '../components/StarRating'
 import DeviceCard from '../components/DeviceCard'
@@ -50,7 +50,11 @@ export default function DeviceDetail() {
       <div className="row g-4">
         <div className="col-md-5">
           <div className="detail-media">
-            <DeviceGlyph typeSlug={device.type?.slug} tone={device.imageTone} size={200} />
+            {resolveImageUrl(device.imageUrl) ? (
+              <img src={resolveImageUrl(device.imageUrl)} alt={device.name} className="detail-media-photo" />
+            ) : (
+              <DeviceGlyph typeSlug={device.type?.slug} tone={device.imageTone} size={200} />
+            )}
           </div>
         </div>
 

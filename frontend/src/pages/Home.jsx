@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useDataState, useEnrichedDevices } from '../context/DataContext'
 import DeviceCard from '../components/DeviceCard'
+import DeviceGlyph from '../components/DeviceGlyph'
 import SearchBar from '../components/SearchBar'
 import FilterPanel from '../components/FilterPanel'
 
 const DEFAULT_FILTERS = { brandIds: [], maxPrice: 11000000, sortBy: 'release-desc' }
 
 export default function Home() {
-  const { types } = useDataState()
+  const { types, loading, error } = useDataState()
   const devices = useEnrichedDevices()
 
   const [activeType, setActiveType] = useState('all')
@@ -102,9 +103,23 @@ export default function Home() {
               </span>
             </div>
 
-            {filtered.length === 0 ? (
-              <div className="text-center text-muted py-5">
-                No encontramos dispositivos con esos filtros. Prueba ajustando el precio máximo o la búsqueda.
+            {loading ? (
+              <div className="empty-state">
+                <div className="empty-state-glyph"><DeviceGlyph typeSlug="celular" tone="phone-graphite" size={56} /></div>
+                <p className="text-muted mb-0">Cargando catálogo…</p>
+              </div>
+            ) : error ? (
+              <div className="empty-state">
+                <p className="text-danger mb-0">
+                  No pudimos cargar el catálogo ({error}). Verifica que el backend esté corriendo.
+                </p>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-glyph"><DeviceGlyph typeSlug="tablet" tone="tablet-graphite" size={56} /></div>
+                <p className="text-muted mb-0">
+                  No encontramos dispositivos con esos filtros. Prueba ajustando el precio máximo o la búsqueda.
+                </p>
               </div>
             ) : (
               <div className="row row-cols-1 row-cols-sm-2 row-cols-xl-3 g-3">
